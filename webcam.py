@@ -20,7 +20,7 @@ blink_threshold = 9
 
 blocks = 3
 
-canvas_size = (720, 960)
+canvas_size = (1080, 1920)
 canvas = np.zeros(np.append(canvas_size,3), dtype = "uint8")
 hori_break = [a*canvas.shape[1]/blocks for a in range(0,blocks+1)]
 verti_break = [a*canvas.shape[0]/blocks for a in range(0,blocks+1)]
@@ -30,7 +30,15 @@ center = (canvas_size[1] / 2, canvas_size[0] / 2)
 center_point = center
 eye_center = center
 # scalar = (-40,100) #(leftRight, upDown)
-scalar = (-40,70) #(leftRight, upDown)
+scalar = (-90,240) #(leftRight, upDown)
+
+limit_pupil = 20
+sum_pupil = (0,0)
+queue_pupil = {}
+index_pupil = -1
+num_pupil = 0
+
+pupil_buffered = False
 
 def paint_point(canvas, point):
     cv2.circle(canvas, point, 2, (255,255,255), 2)
@@ -57,25 +65,50 @@ def activate_block(canvas, number):
 
 # Activate certain position regarding to the center of picture
 def activate(point):
+    # point (0,0)~(960,720)
+    print "Activation point: Absolute coordinate:" + str(point)
+    print "Activation point: Related to center:" + str(np.subtract(point, center))
     global canvas
-    if point[0] > canvas_size[1]:
-        point[0] = canvas_size[1]
+    point = (int(point[0]), int(point[1]))
+    if point[0] >= canvas_size[1]:
+        point = (canvas_size[1]-3, point[1])
     if point[0] < 0:
-        point[0] = 0
-    if point[1] > canvas_size[0]:
-        point[1] = canvas_size[1]
+        point = (0, point[1])
+    if point[1] >= canvas_size[0]:
+        point = (point[0], canvas_size[0]-3)
     if point[1] < 0:
-        point[1] = 0
-    print np.subtract(point, center)
+        point = (point[0], 0)
     paint_point(canvas, point)
     activate_block(canvas, blocks*(point[1] / verti_break[1]) + (point[0] / hori_break[1]))
+    print "Finish at " + str(point)
 
 # Activate when pupil is at certain position regarding to the eye position 
 # staring at the center of picture
 def activate_pupil(point):
+    print "Activate_pupil " + str(np.subtract(point, eye_center))
     activate(np.add(
         np.multiply(np.subtract(point, eye_center),scalar),
         center))
+
+def enQueue(current_pupil):
+    global limit_pupil, sum_pupil, queue_pupil, index_pupil, num_pupil, pupil_buffered
+    index_pupil += 1
+    if index_pupil == limit_pupil:
+        index_pupil = 0
+        pupil_buffered = True
+    if index_pupil in queue_pupil:
+        sum_pupil = np.subtract(sum_pupil, queue_pupil[index_pupil])
+        # print "Subtracing!"
+    queue_pupil[index_pupil] = current_pupil
+    sum_pupil = np.add(sum_pupil, current_pupil)
+
+def clearQueue():
+    global sum_pupil, queue_pupil, index_pupil, num_pupil, pupil_buffered
+    sum_pupil = (0,0)
+    queue_pupil = {}
+    index_pupil = -1
+    num_pupil = 0
+    pupil_buffered = False
 
 # def click(event, x, y, flags, param):
 #     if event == cv2.EVENT_LBUTTONDOWN:
@@ -128,6 +161,10 @@ def track(old_gray, gray, irises, blinks, blink_in_previous):
 def get_irises_location(eye):
     pass
 
+def record(msg, staff=""):
+    with open("log.txt", "a") as f:
+        f.write(msg + str(staff))
+
 def first_regulate(landmark):
     global eye_center
 
@@ -144,13 +181,14 @@ def first_regulate(landmark):
             cv2.circle(frame, (x, y), 1, (0, 255, 255), 1)
             rcx += x; rcy += y
         rcx /= len(right_eye); rcy /= len(right_eye)
-        rcx = int(rcx); rcy = int(rcy)
+        # rcx = int(rcx); rcy = int(rcy)
+
     if len(left_eye) > 0:
         for (x, y) in left_eye:
             cv2.circle(frame, (x, y), 1, (0, 255, 255), 1)
             lcx += x; lcy += y
         lcx /= len(left_eye); lcy /= len(left_eye)
-        lcx = int(lcx); lcy = int(lcy)
+        # lcx = int(lcx); lcy = int(lcy)
 
     x, y, w, h = cv2.boundingRect(right_eye)
     right_eye_frame = frame[y:(y+h), x:(x+w)]
@@ -192,17 +230,19 @@ def first_regulate(landmark):
                 print "Regulate Error!!!!"
             else:
                 (cx,cy) = (int(center['m10']/center['m00']), int(center['m01']/center['m00']))
-            eye_center = (x+cx-rcx, y+cy-rcy)
+            print "FR: relative coord: " + str((x+cx-rcx, y+cy-rcy))
+            enQueue((x+cx-rcx, y+cy-rcy))
+            if pupil_buffered:
+                eye_center = np.true_divide(sum_pupil, limit_pupil)
             cv2.circle(right_eye_frame,(cx,cy),3,(0,255,0),1)
-            cv2.circle(right_eye_frame,(rcx-x,rcy-y),1,(255,255,0),1)
+            cv2.circle(right_eye_frame,(int(rcx-x),int(rcy-y)),1,(255,255,0),1)
         else:
             print "Regulate Error!!!!"
-    cv2.imshow("first reg", cv2.resize(right_eye_frame, (0, 0), fx=10, fy=10))
+    # cv2.imshow("first reg", cv2.resize(right_eye_frame, (0, 0), fx=10, fy=10))
 
 
 def second_regulate(landmark):
     global eye_center
-    print eye_center
     global scalar
 
     landmark = face_utils.shape_to_np(landmark)
@@ -218,13 +258,13 @@ def second_regulate(landmark):
             cv2.circle(frame, (x, y), 1, (0, 255, 255), 1)
             rcx += x; rcy += y
         rcx /= len(right_eye); rcy /= len(right_eye)
-        rcx = int(rcx); rcy = int(rcy)
+        # rcx = int(rcx); rcy = int(rcy)
     if len(left_eye) > 0:
         for (x, y) in left_eye:
             cv2.circle(frame, (x, y), 1, (0, 255, 255), 1)
             lcx += x; lcy += y
         lcx /= len(left_eye); lcy /= len(left_eye)
-        lcx = int(lcx); lcy = int(lcy)
+        # lcx = int(lcx); lcy = int(lcy)
 
     x, y, w, h = cv2.boundingRect(right_eye)
     right_eye_frame = frame[y:(y+h), x:(x+w)]
@@ -266,23 +306,28 @@ def second_regulate(landmark):
                 print "Regulate Error!!!!"
             else:
                 (cx,cy) = (int(center['m10']/center['m00']), int(center['m01']/center['m00']))
-            print (x+cx-rcx, y+cy-rcy)
-            # tmp = np.true_divide(
-            #     center_point,
-            #     np.subtract((x+cx-rcx, y+cy-rcy), eye_center)
-            # )
-            # print tmp
-            # scalar = tmp
+            print "SR: relative coord:" + str(np.subtract((x+cx-rcx, y+cy-rcy),eye_center))
+            tmp = np.true_divide(
+                np.subtract((0,0), center_point),
+                np.subtract((x+cx-rcx, y+cy-rcy), eye_center)
+            )
+            print "SR: current scalar" + str(tmp)
+            enQueue(tmp)
+            if pupil_buffered:
+                scalar = np.true_divide(sum_pupil, limit_pupil)
+
             cv2.circle(right_eye_frame,(cx,cy),3,(0,255,0),1)
-            cv2.circle(right_eye_frame,(rcx-x,rcy-y),1,(255,255,0),1)
+            cv2.circle(right_eye_frame,(int(rcx-x),int(rcy-y)),1,(255,255,0),1)
             
         else:
             print "Regulate Error!!!!"
-    cv2.imshow("second reg", cv2.resize(right_eye_frame, (0, 0), fx=10, fy=10))
+    # cv2.imshow("second reg", cv2.resize(right_eye_frame, (0, 0), fx=10, fy=10))
 
 
 
 def eyes(gray, old_gray, irises, blinks, blink_in_previous, landmark):
+    global pupil_buffered,limit_pupil,sum_pupil,queue_pupil,index_pupil
+
     landmark = face_utils.shape_to_np(landmark)
     (j, k) = face_utils.FACIAL_LANDMARKS_IDXS["left_eye"]
     left_eye = np.float32(landmark[j:k])
@@ -382,13 +427,17 @@ def eyes(gray, old_gray, irises, blinks, blink_in_previous, landmark):
             cv2.circle(right_eye_frame,(cx,cy),3,(0,255,0),1)
             cv2.circle(right_eye_frame,(rcx-x,rcy-y),1,(255,255,0),1)
             # cv2.circle(frame,(x+cx,y+cy),3,(0,255,0),1)
-            activate_pupil((x+cx-rcx, y+cy-rcy))
 
-        cv2.imshow("frame", frame)
+            enQueue((x+cx-rcx, y+cy-rcy))
+            if pupil_buffered:
+                activate_pupil(np.true_divide(sum_pupil, limit_pupil))
+
+        
         # cv2.imshow("right eye binary", cv2.resize(binary_right_eye_frame, (0, 0), fx=10, fy=10))
         # for i in range(len(contours)):
         #     cv2.drawContours(right_eye_frame, contours, i, ((i % 3 ==0)*255,(i % 3 == 1)*255, (i % 3 == 2)*255))
         cv2.imshow("right eye", cv2.resize(right_eye_frame, (0, 0), fx=10, fy=10))
+    
 
 
 
@@ -459,31 +508,41 @@ if __name__ == "__main__":
     cv2.imshow("canvas", canvas)
     cv2.waitKey(0)
     
-    ret, frame = webcam.read()
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    rects = detector(gray, 0)
-    if len(rects) > 1:
-        print "Error while first regulating!!"
-    for rect in rects:
-        landmark = predictor(gray, rect)
-        first_regulate(landmark)
+    for cc in range(2*limit_pupil):
+        ret, frame = webcam.read()
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        rects = detector(gray, 0)
+        if len(rects) > 1:
+            print "Error while first regulating!!"
+        for rect in rects:
+            landmark = predictor(gray, rect)
+            first_regulate(landmark)
+
+    clearQueue()
 
     ##Second regulation
     activate_block(canvas, -1)
     cv2.circle(canvas, (0,0), 3, (0,0,255), 7)
     cv2.imshow("canvas", canvas)
     cv2.waitKey(0)
+    rects = []
 
-    ret, frame = webcam.read()
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    rects = detector(gray, 0)
-    if len(rects) > 1:
-        print "Error while second regulating!!"
-    for rect in rects:
-        landmark = predictor(gray, rect)
-        second_regulate(landmark)
+    for cc in range(2*limit_pupil):
+        ret, frame = webcam.read()
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        rects = detector(gray, 0)
+        if len(rects) > 1:
+            print "Error while second regulating!!"
+        for rect in rects:
+            landmark = predictor(gray, rect)
+            second_regulate(landmark)
+
+    clearQueue()
 
 
+    record("\nscalar=", scalar)
+    record("\neye_center=", eye_center)
+    record("\n")
 
     while True:
         ret, frame = webcam.read()
@@ -501,11 +560,11 @@ if __name__ == "__main__":
 
         frame = cv2.resize(frame, (0, 0), fx=2, fy=2)
         resized_image = cv2.flip(frame, 1)
-        # cv2.imshow('Frame', resized_image)
         old_gray = gray.copy()
+        # cv2.imshow('Frame', resized_image)
         # cv2.resizeWindow('Frame', 960,720)
 
-
+        cv2.imshow("frame", frame)
         cv2.imshow("canvas", canvas)
 
         key = cv2.waitKey(1) & 0xFF

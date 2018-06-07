@@ -6,7 +6,7 @@ from scipy import ndimage
 import numpy as np
 from imutils import face_utils
 
-blocks = 2
+blocks = 3
 
 canvas_size = (720, 960)
 canvas = np.zeros(np.append(canvas_size,3), dtype = "uint8")
@@ -14,8 +14,8 @@ hori_break = [a*canvas.shape[1]/blocks for a in range(0,4)]
 verti_break = [a*canvas.shape[0]/blocks for a in range(0,4)]
 thickness_breaking = 3
 
-center = tuple(a / 2 for a in canvas_size)
-eye_center = center
+center_point = tuple(a / 2 for a in canvas_size)
+eye_center = center_point
 scalar = 1
 
 def activate_block(canvas, number):
@@ -45,7 +45,9 @@ def activate(point):
 
 # Activate when pupil is at location point
 def activate_pupil(point, eye_center):
-    activate(np.add(np.subtract(point, eye_center)*scalar, center))
+    global center_point
+    global scalar
+    activate(np.add(np.subtract(point, eye_center)*scalar, center_point))
 
 def click(event, x, y, flags, param):
     if event == cv2.EVENT_LBUTTONDOWN:
