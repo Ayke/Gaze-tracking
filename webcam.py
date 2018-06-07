@@ -251,6 +251,7 @@ if __name__ == "__main__":
         #cv2.resizeWindow('Frame', 960,720)
 
         # cv2.imwrite('./export/'+photo,resized_image)
+        cv2.imshow('Frame', frame)
 
         key = cv2.waitKey(1) & 0xFF
         if key == ord("q"):
