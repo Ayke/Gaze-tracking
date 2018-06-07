@@ -92,7 +92,7 @@ def activate_block(canvas, number):
         return -1
     i = number % blocks
     j = number / blocks
-    cv2.rectangle(canvas, (hori_break[i] + thickness_breaking, verti_break[j] + thickness_breaking), 
+    cv2.rectangle(canvas, (hori_break[i] + thickness_breaking, verti_break[j] + thickness_breaking),
         (hori_break[i+1] - thickness_breaking, verti_break[j+1] - thickness_breaking), (255,0,0), 7)
     return number
 
@@ -116,7 +116,7 @@ def activate(point):
     paint_point(canvas, point)
     print "Finish at " + str(point)
 
-# Activate when pupil is at certain position regarding to the eye position 
+# Activate when pupil is at certain position regarding to the eye position
 # staring at the center of picture
 def activate_pupil(point):
     print "Activate_pupil " + str(np.subtract(point, eye_center))
@@ -240,7 +240,7 @@ def first_regulate(landmark):
         else:
             bestBlob = -1
 
-        if bestBlob >= 0:	
+        if bestBlob >= 0:
             center = cv2.moments(contours[bestBlob])
             if center['m00'] == 0:
                 (cx,cy) = (0,0)
@@ -337,7 +337,7 @@ def second_regulate(landmark):
 
             cv2.circle(right_eye_frame,(cx,cy),3,(0,255,0),1)
             cv2.circle(right_eye_frame,(int(rcx-x),int(rcy-y)),1,(255,255,0),1)
-            
+
         else:
             print "Regulate Error!!!!"
     # cv2.imshow("second reg", cv2.resize(right_eye_frame, (0, 0), fx=10, fy=10))
@@ -352,7 +352,7 @@ def eyes(gray, old_gray, irises, blinks, blink_in_previous, landmark):
     left_eye = np.float32(landmark[j:k])
     (j, k) = face_utils.FACIAL_LANDMARKS_IDXS["right_eye"]
     right_eye = np.float32(landmark[j:k])
-    
+
 
     # left_pupil_x -> lcx
     # right_pupil_x -> rcx
@@ -370,7 +370,7 @@ def eyes(gray, old_gray, irises, blinks, blink_in_previous, landmark):
         rcx /= len(right_eye); rcy /= len(right_eye)
         eye_center_buffer.add((rcx,rcy))
         # rcx = int(rcx); rcy = int(rcy)
-    
+
     ## Left eye is not buffered, modify before using!
     # if len(left_eye) > 0:
     #     for (x, y) in left_eye:
@@ -387,7 +387,7 @@ def eyes(gray, old_gray, irises, blinks, blink_in_previous, landmark):
     if right_eye_frame.shape[0] > 0 and right_eye_frame.shape[1] > 0:
         gray_right_eye_frame = cv2.cvtColor(
             right_eye_frame, cv2.COLOR_BGR2GRAY)
-        
+
         # (th, thc) = (15, 7)
         # (th, thc) = (25, 14)
         (th, thc) = (25, 19)
@@ -411,7 +411,7 @@ def eyes(gray, old_gray, irises, blinks, blink_in_previous, landmark):
         #     if th == -1:
         #         th = 0
         ############################################################
-        
+
 
         # Use Adaptive Mean Method to binarize image, eyes will be white (255)
         binary_right_eye_frame = cv2.adaptiveThreshold(gray_right_eye_frame, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY_INV, th, thc)
@@ -441,7 +441,7 @@ def eyes(gray, old_gray, irises, blinks, blink_in_previous, landmark):
         else:
             bestBlob = -1
 
-        if bestBlob >= 0:	
+        if bestBlob >= 0:
             center = cv2.moments(contours[bestBlob])
             if center['m00'] == 0:
                 (cx,cy) = (0,0)
@@ -455,12 +455,12 @@ def eyes(gray, old_gray, irises, blinks, blink_in_previous, landmark):
             runtime_buffer.add((int(x+cx-rcx), int(y+cy-rcy)))
             activate_pupil(runtime_buffer.get())
 
-        
+
         # cv2.imshow("right eye binary", cv2.resize(binary_right_eye_frame, (0, 0), fx=10, fy=10))
         # for i in range(len(contours)):
         #     cv2.drawContours(right_eye_frame, contours, i, ((i % 3 ==0)*255,(i % 3 == 1)*255, (i % 3 == 2)*255))
         cv2.imshow("right eye", cv2.resize(right_eye_frame, (0, 0), fx=10, fy=10))
-    
+
 
 
 
@@ -530,7 +530,7 @@ if __name__ == "__main__":
     cv2.circle(canvas,center, 3, (0,0,255), 7)
     cv2.imshow("canvas", canvas)
     cv2.waitKey(0)
-    
+
     for cc in range(2*regulate_buffer_size):
         ret, frame = webcam.read()
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
