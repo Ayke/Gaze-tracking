@@ -18,6 +18,64 @@ lk_params = dict(winSize=(15, 15),
                  criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 0.03))
 blink_threshold = 9
 
+blocks = 3
+
+canvas_size = (720, 960)
+canvas = np.zeros(np.append(canvas_size,3), dtype = "uint8")
+hori_break = [a*canvas.shape[1]/blocks for a in range(0,blocks+1)]
+verti_break = [a*canvas.shape[0]/blocks for a in range(0,blocks+1)]
+thickness_breaking = 3
+
+center = (canvas_size[1] / 2, canvas_size[0] / 2)
+center_point = center
+eye_center = center
+# scalar = (-40,100) #(leftRight, upDown)
+scalar = (-40,70) #(leftRight, upDown)
+
+def activate_block(canvas, number):
+    canvas.fill(0)
+    # Slice the canvas into blocks*blocks
+    # Vertical lines
+    for i in hori_break:
+        cv2.line(canvas, (i, 0), (i, canvas.shape[0]), (255,255,255), thickness_breaking)
+    # Horizontal lines
+    for j in verti_break:
+        cv2.line(canvas, (0, j), (canvas.shape[1], j), (255,255,255), thickness_breaking)
+    # cv2.imshow("Canvas0", canvas)
+    # cv2.waitKey(0)
+    if number < 0 or number >= blocks*blocks:
+        return -1
+    i = number % blocks
+    j = number / blocks
+    cv2.rectangle(canvas, (hori_break[i] + thickness_breaking, verti_break[j] + thickness_breaking), 
+        (hori_break[i+1] - thickness_breaking, verti_break[j+1] - thickness_breaking), (255,0,0), 7)
+    return number
+
+
+# Activate certain position regarding to the center of picture
+def activate(point):
+    global canvas
+    if point[0] > canvas_size[1]:
+        point[0] = canvas_size[1]
+    if point[0] < 0:
+        point[0] = 0
+    if point[1] > canvas_size[0]:
+        point[1] = canvas_size[1]
+    if point[1] < 0:
+        point[1] = 0
+    print np.subtract(point, center)
+    activate_block(canvas, blocks*(point[1] / verti_break[1]) + (point[0] / hori_break[1]))
+
+# Activate when pupil is at certain position regarding to the eye position 
+# staring at the center of picture
+def activate_pupil(point):
+    activate(np.add(
+        np.multiply(np.subtract(point, eye_center),scalar),
+        center))
+
+# def click(event, x, y, flags, param):
+#     if event == cv2.EVENT_LBUTTONDOWN:
+#         activate_pupil((x,y), eye_center)
 
 def headpose(shape):
     mid_x = [(shape.part(1).x+shape.part(15).x)/2,
@@ -66,6 +124,159 @@ def track(old_gray, gray, irises, blinks, blink_in_previous):
 def get_irises_location(eye):
     pass
 
+def first_regulate(landmark):
+    global eye_center
+
+    landmark = face_utils.shape_to_np(landmark)
+    (j, k) = face_utils.FACIAL_LANDMARKS_IDXS["left_eye"]
+    left_eye = np.float32(landmark[j:k])
+    (j, k) = face_utils.FACIAL_LANDMARKS_IDXS["right_eye"]
+    right_eye = np.float32(landmark[j:k])
+
+    (lcx, lcy) = (0.0, 0.0)
+    (rcx, rcy) = (0.0, 0.0)
+    if len(right_eye) > 0:
+        for (x, y) in right_eye:
+            cv2.circle(frame, (x, y), 1, (0, 255, 255), 1)
+            rcx += x; rcy += y
+        rcx /= len(right_eye); rcy /= len(right_eye)
+        rcx = int(rcx); rcy = int(rcy)
+    if len(left_eye) > 0:
+        for (x, y) in left_eye:
+            cv2.circle(frame, (x, y), 1, (0, 255, 255), 1)
+            lcx += x; lcy += y
+        lcx /= len(left_eye); lcy /= len(left_eye)
+        lcx = int(lcx); lcy = int(lcy)
+
+    x, y, w, h = cv2.boundingRect(right_eye)
+    right_eye_frame = frame[y:(y+h), x:(x+w)]
+    if right_eye_frame.shape[0] > 0 and right_eye_frame.shape[1] > 0:
+        gray_right_eye_frame = cv2.cvtColor(
+            right_eye_frame, cv2.COLOR_BGR2GRAY)
+        (th, thc) = (35, 19)
+        binary_right_eye_frame = cv2.adaptiveThreshold(gray_right_eye_frame, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY_INV, th, thc)
+        _, contours, _ = cv2.findContours(binary_right_eye_frame,cv2.RETR_LIST,cv2.CHAIN_APPROX_SIMPLE)
+        i = 0
+        for cnt in contours:
+            area = cv2.contourArea(cnt)
+            if area < 1e-5:
+                del contours[i]
+                break
+            i += 1
+
+        # Pick the largest blob as the right eye
+        bestBlob = -1
+        if len(contours) >= 2:
+            maxArea = -1
+            maxIndex = 0
+            i = 0
+            for cnt in contours:
+                if cv2.contourArea(cnt) > maxArea:
+                    maxArea = cv2.contourArea(cnt)
+                    maxIndex = i
+                i += 1
+            bestBlob = maxIndex
+        elif len(contours) == 1:
+            bestBlob = 0
+        else:
+            bestBlob = -1
+
+        if bestBlob >= 0:	
+            center = cv2.moments(contours[bestBlob])
+            if center['m00'] == 0:
+                (cx,cy) = (0,0)
+                print "Regulate Error!!!!"
+            else:
+                (cx,cy) = (int(center['m10']/center['m00']), int(center['m01']/center['m00']))
+            eye_center = (x+cx-rcx, y+cy-rcy)
+            cv2.circle(right_eye_frame,(cx,cy),3,(0,255,0),1)
+            cv2.circle(right_eye_frame,(rcx-x,rcy-y),1,(255,255,0),1)
+        else:
+            print "Regulate Error!!!!"
+    cv2.imshow("first reg", cv2.resize(right_eye_frame, (0, 0), fx=10, fy=10))
+
+
+def second_regulate(landmark):
+    global eye_center
+    print eye_center
+    global scalar
+
+    landmark = face_utils.shape_to_np(landmark)
+    (j, k) = face_utils.FACIAL_LANDMARKS_IDXS["left_eye"]
+    left_eye = np.float32(landmark[j:k])
+    (j, k) = face_utils.FACIAL_LANDMARKS_IDXS["right_eye"]
+    right_eye = np.float32(landmark[j:k])
+
+    (lcx, lcy) = (0.0, 0.0)
+    (rcx, rcy) = (0.0, 0.0)
+    if len(right_eye) > 0:
+        for (x, y) in right_eye:
+            cv2.circle(frame, (x, y), 1, (0, 255, 255), 1)
+            rcx += x; rcy += y
+        rcx /= len(right_eye); rcy /= len(right_eye)
+        rcx = int(rcx); rcy = int(rcy)
+    if len(left_eye) > 0:
+        for (x, y) in left_eye:
+            cv2.circle(frame, (x, y), 1, (0, 255, 255), 1)
+            lcx += x; lcy += y
+        lcx /= len(left_eye); lcy /= len(left_eye)
+        lcx = int(lcx); lcy = int(lcy)
+
+    x, y, w, h = cv2.boundingRect(right_eye)
+    right_eye_frame = frame[y:(y+h), x:(x+w)]
+    if right_eye_frame.shape[0] > 0 and right_eye_frame.shape[1] > 0:
+        gray_right_eye_frame = cv2.cvtColor(
+            right_eye_frame, cv2.COLOR_BGR2GRAY)
+        (th, thc) = (35, 19)
+        binary_right_eye_frame = cv2.adaptiveThreshold(gray_right_eye_frame, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY_INV, th, thc)
+        _, contours, _ = cv2.findContours(binary_right_eye_frame,cv2.RETR_LIST,cv2.CHAIN_APPROX_SIMPLE)
+        i = 0
+        for cnt in contours:
+            area = cv2.contourArea(cnt)
+            if area < 1e-5:
+                del contours[i]
+                break
+            i += 1
+
+        # Pick the largest blob as the right eye
+        bestBlob = -1
+        if len(contours) >= 2:
+            maxArea = -1
+            maxIndex = 0
+            i = 0
+            for cnt in contours:
+                if cv2.contourArea(cnt) > maxArea:
+                    maxArea = cv2.contourArea(cnt)
+                    maxIndex = i
+                i += 1
+            bestBlob = maxIndex
+        elif len(contours) == 1:
+            bestBlob = 0
+        else:
+            bestBlob = -1
+
+        if bestBlob >= 0:	
+            center = cv2.moments(contours[bestBlob])
+            if center['m00'] == 0:
+                (cx,cy) = (0,0)
+                print "Regulate Error!!!!"
+            else:
+                (cx,cy) = (int(center['m10']/center['m00']), int(center['m01']/center['m00']))
+            print (x+cx-rcx, y+cy-rcy)
+            # tmp = np.true_divide(
+            #     center_point,
+            #     np.subtract((x+cx-rcx, y+cy-rcy), eye_center)
+            # )
+            # print tmp
+            # scalar = tmp
+            cv2.circle(right_eye_frame,(cx,cy),3,(0,255,0),1)
+            cv2.circle(right_eye_frame,(rcx-x,rcy-y),1,(255,255,0),1)
+            
+        else:
+            print "Regulate Error!!!!"
+    cv2.imshow("second reg", cv2.resize(right_eye_frame, (0, 0), fx=10, fy=10))
+
+
 
 def eyes(gray, old_gray, irises, blinks, blink_in_previous, landmark):
     landmark = face_utils.shape_to_np(landmark)
@@ -79,6 +290,25 @@ def eyes(gray, old_gray, irises, blinks, blink_in_previous, landmark):
     # right_pupil_x -> rcx
     (lpx, lpy) = (0.0, 0.0)
     (rpx, rpy) = (0.0, 0.0)
+
+    # left_center_x -> lcx
+    # right_center_x -> rcx
+    (lcx, lcy) = (0.0, 0.0)
+    (rcx, rcy) = (0.0, 0.0)
+    if len(right_eye) > 0:
+        for (x, y) in right_eye:
+            cv2.circle(frame, (x, y), 1, (0, 255, 255), 1)
+            rcx += x; rcy += y
+        rcx /= len(right_eye); rcy /= len(right_eye)
+        rcx = int(rcx); rcy = int(rcy)
+    if len(left_eye) > 0:
+        for (x, y) in left_eye:
+            cv2.circle(frame, (x, y), 1, (0, 255, 255), 1)
+            lcx += x; lcy += y
+        lcx /= len(left_eye); lcy /= len(left_eye)
+        lcx = int(lcx); lcy = int(lcy)
+    # cv2.circle(frame, (int(lcx), int(lcy)), 1, (255, 255, 255))
+    # cv2.circle(frame, (int(rcx), int(rcy)), 1, (255, 255, 255))
 
     x, y, w, h = cv2.boundingRect(right_eye)
     right_eye_frame = frame[y:(y+h), x:(x+w)]
@@ -146,10 +376,14 @@ def eyes(gray, old_gray, irises, blinks, blink_in_previous, landmark):
             else:
                 (cx,cy) = (int(center['m10']/center['m00']), int(center['m01']/center['m00']))
             cv2.circle(right_eye_frame,(cx,cy),3,(0,255,0),1)
+            cv2.circle(right_eye_frame,(rcx-x,rcy-y),1,(255,255,0),1)
+            # cv2.circle(frame,(x+cx,y+cy),3,(0,255,0),1)
+            activate_pupil((x+cx-rcx, y+cy-rcy))
 
-        cv2.imshow("right eye binary", cv2.resize(binary_right_eye_frame, (0, 0), fx=10, fy=10))
-        for i in range(len(contours)):
-            cv2.drawContours(right_eye_frame, contours, i, ((i % 3 ==0)*255,(i % 3 == 1)*255, (i % 3 == 2)*255))
+        cv2.imshow("frame", frame)
+        # cv2.imshow("right eye binary", cv2.resize(binary_right_eye_frame, (0, 0), fx=10, fy=10))
+        # for i in range(len(contours)):
+        #     cv2.drawContours(right_eye_frame, contours, i, ((i % 3 ==0)*255,(i % 3 == 1)*255, (i % 3 == 2)*255))
         cv2.imshow("right eye", cv2.resize(right_eye_frame, (0, 0), fx=10, fy=10))
 
 
@@ -159,25 +393,6 @@ def eyes(gray, old_gray, irises, blinks, blink_in_previous, landmark):
     left_eye_frame = frame[y:(y+h), x:(x+w)]
     if left_eye_frame.shape[0] > 0 and left_eye_frame.shape[1] > 0:
         left_eye_frame = cv2.resize(left_eye_frame, (0, 0), fx=10, fy=10)
-
-    # left_center_x -> lcx
-    # right_center_x -> rcx
-    (lcx, lcy) = (0.0, 0.0)
-    (rcx, rcy) = (0.0, 0.0)
-    for (x, y) in right_eye:
-        cv2.circle(frame, (x, y), 1, (0, 255, 255), 1)
-        lcx += x
-        lcy += y
-    lcx /= len(right_eye)
-    lcy /= len(right_eye)
-    for (x, y) in left_eye:
-        cv2.circle(frame, (x, y), 1, (0, 255, 255), 1)
-        rcx += x
-        rcy += y
-    rcx /= len(left_eye)
-    rcy /= len(left_eye)
-    cv2.circle(frame, (int(lcx), int(lcy)), 1, (255, 255, 255))
-    cv2.circle(frame, (int(rcx), int(rcy)), 1, (255, 255, 255))
 
     # if len(irises) >= 2:  # irises detected, track eyes
     #     track_result = track(old_gray, gray, irises, blinks, blink_in_previous)
@@ -210,7 +425,6 @@ def save_to_file(facial, pose, irises, files):
 
 
 if __name__ == "__main__":
-
     print("[INFO] loading predictors...")
     detector = dlib.get_frontal_face_detector()
     predictor = dlib.shape_predictor(DLIB_LIB)
@@ -230,6 +444,43 @@ if __name__ == "__main__":
     #photos = os.listdir('./photos/')
     # print(photos)
     # for photo in photos:
+
+
+
+
+    print("[INFO] regulate eye contact")
+    ##First regulation
+    activate_block(canvas, -1)
+    cv2.circle(canvas,center, 3, (0,0,255), 7)
+    cv2.imshow("canvas", canvas)
+    cv2.waitKey(0)
+    
+    ret, frame = webcam.read()
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    rects = detector(gray, 0)
+    if len(rects) > 1:
+        print "Error while first regulating!!"
+    for rect in rects:
+        landmark = predictor(gray, rect)
+        first_regulate(landmark)
+
+    ##Second regulation
+    activate_block(canvas, -1)
+    cv2.circle(canvas, (0,0), 3, (0,0,255), 7)
+    cv2.imshow("canvas", canvas)
+    cv2.waitKey(0)
+
+    ret, frame = webcam.read()
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    rects = detector(gray, 0)
+    if len(rects) > 1:
+        print "Error while second regulating!!"
+    for rect in rects:
+        landmark = predictor(gray, rect)
+        second_regulate(landmark)
+
+
+
     while True:
         ret, frame = webcam.read()
         #frame = cv2.imread('./photos/'+photo)
@@ -248,9 +499,10 @@ if __name__ == "__main__":
         resized_image = cv2.flip(frame, 1)
         # cv2.imshow('Frame', resized_image)
         old_gray = gray.copy()
-        #cv2.resizeWindow('Frame', 960,720)
+        # cv2.resizeWindow('Frame', 960,720)
 
-        # cv2.imwrite('./export/'+photo,resized_image)
+
+        cv2.imshow("canvas", canvas)
 
         key = cv2.waitKey(1) & 0xFF
         if key == ord("q"):

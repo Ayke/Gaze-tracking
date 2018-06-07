@@ -6,10 +6,12 @@ from scipy import ndimage
 import numpy as np
 from imutils import face_utils
 
-canvas_size = (600, 800)
+blocks = 2
+
+canvas_size = (720, 960)
 canvas = np.zeros(np.append(canvas_size,3), dtype = "uint8")
-hori_break = [a*canvas.shape[1]/3 for a in range(0,4)]
-verti_break = [a*canvas.shape[0]/3 for a in range(0,4)]
+hori_break = [a*canvas.shape[1]/blocks for a in range(0,4)]
+verti_break = [a*canvas.shape[0]/blocks for a in range(0,4)]
 thickness_breaking = 3
 
 center = tuple(a / 2 for a in canvas_size)
@@ -19,7 +21,7 @@ scalar = 1
 def activate_block(canvas, number):
     print "Activating " + str(number)
     canvas.fill(0)
-    # Slice the canvas into 3*3
+    # Slice the canvas into blocks*blocks
     # Vertical lines
     for i in hori_break:
         cv2.line(canvas, (i, 0), (i, canvas.shape[0]), (255,255,255), thickness_breaking)
@@ -28,10 +30,10 @@ def activate_block(canvas, number):
         cv2.line(canvas, (0, j), (canvas.shape[1], j), (255,255,255), thickness_breaking)
     # cv2.imshow("Canvas0", canvas)
     # cv2.waitKey(0)
-    if number < 0 or number > 8:
+    if number < 0 or number >= blocks*blocks:
         return -1
-    i = number % 3
-    j = number / 3
+    i = number % blocks
+    j = number / blocks
     cv2.rectangle(canvas, (hori_break[i] + thickness_breaking, verti_break[j] + thickness_breaking), 
         (hori_break[i+1] - thickness_breaking, verti_break[j+1] - thickness_breaking), (255,0,0), 7)
     return number
@@ -39,7 +41,7 @@ def activate_block(canvas, number):
 # Activate certain position
 def activate(point):
     global canvas
-    activate_block(canvas, 3*(point[1] / verti_break[1]) + (point[0] / hori_break[1]))
+    activate_block(canvas, blocks*(point[1] / verti_break[1]) + (point[0] / hori_break[1]))
 
 # Activate when pupil is at location point
 def activate_pupil(point, eye_center):
