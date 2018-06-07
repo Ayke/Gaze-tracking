@@ -18,7 +18,7 @@ lk_params = dict(winSize=(15, 15),
                  criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 0.03))
 blink_threshold = 9
 
-blocks = 3
+blocks = 2
 
 canvas_size = (1080, 1920)
 canvas = np.zeros(np.append(canvas_size,3), dtype = "uint8")
@@ -28,7 +28,7 @@ thickness_breaking = 3
 
 center = (canvas_size[1] / 2, canvas_size[0] / 2)
 center_point = center
-eye_center = center
+center_eye_pos = center
 # scalar = (-40,100) #(leftRight, upDown)
 scalar = (-90,240) #(leftRight, upDown)
 scalar_decelerator = (1, 1)
@@ -101,7 +101,6 @@ def activate_block(canvas, number):
 def activate(point):
     # point (0,0)~(960,720)
     print "Activation point: Absolute coordinate:" + str(point)
-    print "Activation point: Related to center:" + str(np.subtract(point, center))
     global canvas
     point = (int(point[0]), int(point[1]))
     if point[0] >= canvas_size[1]:
@@ -119,14 +118,15 @@ def activate(point):
 # Activate when pupil is at certain position regarding to the eye position
 # staring at the center of picture
 def activate_pupil(point):
-    print "Activate_pupil " + str(np.subtract(point, eye_center))
+    global center_eye_pos
+    print "Activate_pupil " + str(np.subtract(point, center_eye_pos))
     activate(np.add(
-        np.multiply(np.subtract(point, eye_center),scalar),
+        np.multiply(np.subtract(point, center_eye_pos),scalar),
         center))
 
 # def click(event, x, y, flags, param):
 #     if event == cv2.EVENT_LBUTTONDOWN:
-#         activate_pupil((x,y), eye_center)
+#         activate_pupil((x,y), center_eye_pos)
 
 def headpose(shape):
     mid_x = [(shape.part(1).x+shape.part(15).x)/2,
@@ -180,9 +180,8 @@ def record(msg, staff=""):
         f.write(msg + str(staff))
 
 def first_regulate(landmark):
-    global eye_center
-    global regulate_buffer
-    global eye_center_buffer
+    global center_eye_pos
+    global regulate_buffer, eye_center_buffer
 
     landmark = face_utils.shape_to_np(landmark)
     (j, k) = face_utils.FACIAL_LANDMARKS_IDXS["left_eye"]
@@ -250,7 +249,7 @@ def first_regulate(landmark):
             (rcx, rcy) = eye_center_buffer.get()
             print "FR: relative coord: " + str((x+cx-rcx, y+cy-rcy))
             regulate_buffer.add((x+cx-rcx, y+cy-rcy))
-            eye_center = regulate_buffer.get()
+            center_eye_pos = regulate_buffer.get()
             cv2.circle(right_eye_frame,(cx,cy),3,(0,255,0),1)
             cv2.circle(right_eye_frame,(int(rcx-x),int(rcy-y)),1,(255,255,0),1)
         else:
@@ -259,9 +258,9 @@ def first_regulate(landmark):
 
 
 def second_regulate(landmark):
-    global eye_center
+    global center_eye_pos
     global scalar
-    global regulate_buffer
+    global regulate_buffer, eye_center_buffer
 
     landmark = face_utils.shape_to_np(landmark)
     (j, k) = face_utils.FACIAL_LANDMARKS_IDXS["left_eye"]
@@ -326,12 +325,12 @@ def second_regulate(landmark):
             else:
                 (cx,cy) = (int(center['m10']/center['m00']), int(center['m01']/center['m00']))
             (rcx, rcy) = eye_center_buffer.get()
-            print "SR: relative coord:" + str(np.subtract((x+cx-rcx, y+cy-rcy),eye_center))
+            print "SR: Eye coord looking at (0,0) regarding eye center:" + str(np.subtract((x+cx-rcx, y+cy-rcy),center_eye_pos))
             tmp = np.true_divide(
                 np.subtract((0,0), center_point),
-                np.subtract((x+cx-rcx, y+cy-rcy), eye_center)
+                np.subtract((x+cx-rcx, y+cy-rcy), center_eye_pos)
             )
-            # print "SR: current scalar" + str(tmp)
+            print "SR: current scalar" + str(tmp)
             regulate_buffer.add(tmp)
             scalar = np.multiply(scalar_decelerator, regulate_buffer.get())
 
@@ -345,7 +344,7 @@ def second_regulate(landmark):
 
 
 def eyes(gray, old_gray, irises, blinks, blink_in_previous, landmark):
-    global runtime_buffer
+    global runtime_buffer, eye_center_buffer
 
     landmark = face_utils.shape_to_np(landmark)
     (j, k) = face_utils.FACIAL_LANDMARKS_IDXS["left_eye"]
@@ -365,7 +364,7 @@ def eyes(gray, old_gray, irises, blinks, blink_in_previous, landmark):
     (rcx, rcy) = (0.0, 0.0)
     if len(right_eye) > 0:
         for (x, y) in right_eye:
-            cv2.circle(frame, (x, y), 1, (0, 255, 255), 1)
+            # cv2.circle(frame, (x, y), 1, (0, 255, 255), 1)
             rcx += x; rcy += y
         rcx /= len(right_eye); rcy /= len(right_eye)
         eye_center_buffer.add((rcx,rcy))
@@ -384,9 +383,18 @@ def eyes(gray, old_gray, irises, blinks, blink_in_previous, landmark):
 
     x, y, w, h = cv2.boundingRect(right_eye)
     right_eye_frame = frame[y:(y+h), x:(x+w)]
+    # cv2.imwrite("right_eye_infraed.jpg", right_eye_frame)
+    # cv2.imwrite("right_eye_infraed_0.jpg", right_eye_frame[:, :, 0])
+    # cv2.imwrite("right_eye_infraed_1.jpg", right_eye_frame[:, :, 1])
+    # cv2.imwrite("right_eye_infraed_2.jpg", right_eye_frame[:, :, 2])
+    # foo = cv2.cvtColor(right_eye_frame, cv2.COLOR_BGR2HSV)
+    # cv2.imwrite("right_eye_infraed_hsv_0.jpg", foo[:, :, 0])
+    # cv2.imwrite("right_eye_infraed_hsv_1.jpg", foo[:, :, 1])
+    # cv2.imwrite("right_eye_infraed_hsv_2.jpg", foo[:, :, 2])
     if right_eye_frame.shape[0] > 0 and right_eye_frame.shape[1] > 0:
         gray_right_eye_frame = cv2.cvtColor(
             right_eye_frame, cv2.COLOR_BGR2GRAY)
+        # gray_right_eye_frame = foo[:, :, 2]
 
         # (th, thc) = (15, 7)
         # (th, thc) = (25, 14)
@@ -398,11 +406,11 @@ def eyes(gray, old_gray, irises, blinks, blink_in_previous, landmark):
         # (th, thc) = (75, 50)
 
 
-        ### Saved for testing options in adaptiveThreshold ########
+        # ## Saved for testing options in adaptiveThreshold ########
         # cv2.imwrite("right_mean_sample.jpg", gray_right_eye_frame)
         # for th in [25,35,45,55,65,75,85,95]:
         #     for thc in range(1, 50, 3):
-        #         binary_gray_right_eye_frame = cv2.adaptiveThreshold(gray_right_eye_frame, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY, th, thc)
+        #         binary_gray_right_eye_frame = cv2.adaptiveThreshold(gray_right_eye_frame, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY_INV, th, thc)
         #         # binary_gray_right_eye_frame = cv2.adaptiveThreshold(gray_right_eye_frame, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, th, thc)
         #         # cv2.imshow("right eye " + str(th) + " " +str(thc), cv2.resize(binary_gray_right_eye_frame, (0, 0), fx=10, fy=10))
         #         cv2.imwrite("right_" + "mean_" + str(th) + "_" + str(thc) + ".jpg", cv2.resize(binary_gray_right_eye_frame, (0, 0), fx=10, fy=10))
@@ -410,7 +418,7 @@ def eyes(gray, old_gray, irises, blinks, blink_in_previous, landmark):
         # while True:
         #     if th == -1:
         #         th = 0
-        ############################################################
+        # ############################################################
 
 
         # Use Adaptive Mean Method to binarize image, eyes will be white (255)
@@ -507,7 +515,7 @@ if __name__ == "__main__":
     face_cascade = cv2.CascadeClassifier(FACE_LIB)
     eye_cascade = cv2.CascadeClassifier(EYE_LIB)
     print("[INFO] camera sensor warming up...")
-    webcam = cv2.VideoCapture(0)
+    webcam = cv2.VideoCapture(1)
     time.sleep(2.0)
 
     # vairable
@@ -546,10 +554,9 @@ if __name__ == "__main__":
 
     ##Second regulation
     activate_block(canvas, -1)
-    cv2.circle(canvas, (0,0), 3, (0,0,255), 7)
+    cv2.circle(canvas, (0,0), 5, (0,0,255), 7)
     cv2.imshow("canvas", canvas)
     cv2.waitKey(0)
-    rects = []
 
     eye_center_buffer.clear()
 
@@ -566,7 +573,7 @@ if __name__ == "__main__":
     regulate_buffer.clear()
 
     record("\nscalar=", scalar)
-    record("\neye_center=", eye_center)
+    record("\ncenter_eye_pos=", center_eye_pos)
     record("\n")
 
     runtime_buffer = buffer(runtime_buffer_size)
