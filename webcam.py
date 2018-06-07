@@ -32,6 +32,9 @@ eye_center = center
 # scalar = (-40,100) #(leftRight, upDown)
 scalar = (-40,70) #(leftRight, upDown)
 
+def paint_point(canvas, point):
+    cv2.circle(canvas, point, 2, (255,255,255), 2)
+
 def activate_block(canvas, number):
     canvas.fill(0)
     # Slice the canvas into blocks*blocks
@@ -64,6 +67,7 @@ def activate(point):
     if point[1] < 0:
         point[1] = 0
     print np.subtract(point, center)
+    paint_point(canvas, point)
     activate_block(canvas, blocks*(point[1] / verti_break[1]) + (point[0] / hori_break[1]))
 
 # Activate when pupil is at certain position regarding to the eye position 
