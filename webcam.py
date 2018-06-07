@@ -31,8 +31,10 @@ center_point = center
 eye_center = center
 # scalar = (-40,100) #(leftRight, upDown)
 scalar = (-90,240) #(leftRight, upDown)
+scalar_decelerator = (1, 1)
+# scalar_decelerator = (0.8,0.6)
 
-limit_pupil = 20
+limit_pupil = 10
 sum_pupil = (0,0)
 queue_pupil = {}
 index_pupil = -1
@@ -41,7 +43,7 @@ num_pupil = 0
 pupil_buffered = False
 
 def paint_point(canvas, point):
-    cv2.circle(canvas, point, 2, (255,255,255), 2)
+    cv2.circle(canvas, point, 7, (0,255,255), 7)
 
 def activate_block(canvas, number):
     canvas.fill(0)
@@ -78,8 +80,8 @@ def activate(point):
         point = (point[0], canvas_size[0]-3)
     if point[1] < 0:
         point = (point[0], 0)
-    paint_point(canvas, point)
     activate_block(canvas, blocks*(point[1] / verti_break[1]) + (point[0] / hori_break[1]))
+    paint_point(canvas, point)
     print "Finish at " + str(point)
 
 # Activate when pupil is at certain position regarding to the eye position 
@@ -314,7 +316,7 @@ def second_regulate(landmark):
             print "SR: current scalar" + str(tmp)
             enQueue(tmp)
             if pupil_buffered:
-                scalar = np.true_divide(sum_pupil, limit_pupil)
+                scalar = np.multiply(scalar_decelerator, np.true_divide(sum_pupil, limit_pupil))
 
             cv2.circle(right_eye_frame,(cx,cy),3,(0,255,0),1)
             cv2.circle(right_eye_frame,(int(rcx-x),int(rcy-y)),1,(255,255,0),1)
