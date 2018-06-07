@@ -34,13 +34,46 @@ scalar = (-90,240) #(leftRight, upDown)
 scalar_decelerator = (1, 1)
 # scalar_decelerator = (0.8,0.6)
 
-limit_pupil = 10
-sum_pupil = (0,0)
-queue_pupil = {}
-index_pupil = -1
-num_pupil = 0
 
-pupil_buffered = False
+runtime_buffer_size = 10
+regulation_buffer_size = 10
+
+class buffer:
+    limit = 5
+    number = 0
+    sum = (0,0)
+    index = 0
+    q = {}
+    def __init__(self, limit = 5):
+        self.sum = (0,0)
+        self.index = 0
+        self.q = {}
+        self.limit = limit
+        self.number = 0
+    def clear(self):
+        self.sum.fill(0)
+        self.index = 0
+        self.q = {}
+        self.number = 0
+    def add(self, point):
+        self.sum = np.add(self.sum, point)
+        if self.index in self.q:
+            self.sum = np.subtract(self.sum, self.q[self.index])
+        self.q[self.index] = point
+        self.index += 1
+        if self.index == self.limit:
+            self.index = 0
+        if self.number < self.limit:
+            self.number += 1
+    def get(self):
+        if (self.number == 0):
+            return (0,0)
+        else:
+            return np.true_divide(self.sum, self.number)
+
+
+
+
 
 def paint_point(canvas, point):
     cv2.circle(canvas, point, 7, (0,255,255), 7)
@@ -91,26 +124,6 @@ def activate_pupil(point):
     activate(np.add(
         np.multiply(np.subtract(point, eye_center),scalar),
         center))
-
-def enQueue(current_pupil):
-    global limit_pupil, sum_pupil, queue_pupil, index_pupil, num_pupil, pupil_buffered
-    index_pupil += 1
-    if index_pupil == limit_pupil:
-        index_pupil = 0
-        pupil_buffered = True
-    if index_pupil in queue_pupil:
-        sum_pupil = np.subtract(sum_pupil, queue_pupil[index_pupil])
-        # print "Subtracing!"
-    queue_pupil[index_pupil] = current_pupil
-    sum_pupil = np.add(sum_pupil, current_pupil)
-
-def clearQueue():
-    global sum_pupil, queue_pupil, index_pupil, num_pupil, pupil_buffered
-    sum_pupil = (0,0)
-    queue_pupil = {}
-    index_pupil = -1
-    num_pupil = 0
-    pupil_buffered = False
 
 # def click(event, x, y, flags, param):
 #     if event == cv2.EVENT_LBUTTONDOWN:
@@ -169,6 +182,7 @@ def record(msg, staff=""):
 
 def first_regulate(landmark):
     global eye_center
+    global regulate_buffer
 
     landmark = face_utils.shape_to_np(landmark)
     (j, k) = face_utils.FACIAL_LANDMARKS_IDXS["left_eye"]
@@ -233,9 +247,8 @@ def first_regulate(landmark):
             else:
                 (cx,cy) = (int(center['m10']/center['m00']), int(center['m01']/center['m00']))
             print "FR: relative coord: " + str((x+cx-rcx, y+cy-rcy))
-            enQueue((x+cx-rcx, y+cy-rcy))
-            if pupil_buffered:
-                eye_center = np.true_divide(sum_pupil, limit_pupil)
+            regulate_buffer.add((x+cx-rcx, y+cy-rcy))
+            eye_center = regulate_buffer.get()
             cv2.circle(right_eye_frame,(cx,cy),3,(0,255,0),1)
             cv2.circle(right_eye_frame,(int(rcx-x),int(rcy-y)),1,(255,255,0),1)
         else:
@@ -246,6 +259,7 @@ def first_regulate(landmark):
 def second_regulate(landmark):
     global eye_center
     global scalar
+    global regulate_buffer
 
     landmark = face_utils.shape_to_np(landmark)
     (j, k) = face_utils.FACIAL_LANDMARKS_IDXS["left_eye"]
@@ -314,9 +328,8 @@ def second_regulate(landmark):
                 np.subtract((x+cx-rcx, y+cy-rcy), eye_center)
             )
             print "SR: current scalar" + str(tmp)
-            enQueue(tmp)
-            if pupil_buffered:
-                scalar = np.multiply(scalar_decelerator, np.true_divide(sum_pupil, limit_pupil))
+            regulate_buffer.add(tmp)
+            scalar = np.multiply(scalar_decelerator, regulate_buffer.get())
 
             cv2.circle(right_eye_frame,(cx,cy),3,(0,255,0),1)
             cv2.circle(right_eye_frame,(int(rcx-x),int(rcy-y)),1,(255,255,0),1)
@@ -328,7 +341,7 @@ def second_regulate(landmark):
 
 
 def eyes(gray, old_gray, irises, blinks, blink_in_previous, landmark):
-    global pupil_buffered,limit_pupil,sum_pupil,queue_pupil,index_pupil
+    global runtime_buffer
 
     landmark = face_utils.shape_to_np(landmark)
     (j, k) = face_utils.FACIAL_LANDMARKS_IDXS["left_eye"]
@@ -344,7 +357,7 @@ def eyes(gray, old_gray, irises, blinks, blink_in_previous, landmark):
 
     # left_center_x -> lcx
     # right_center_x -> rcx
-    (lcx, lcy) = (0.0, 0.0)
+    # (lcx, lcy) = (0.0, 0.0)
     (rcx, rcy) = (0.0, 0.0)
     if len(right_eye) > 0:
         for (x, y) in right_eye:
@@ -352,12 +365,15 @@ def eyes(gray, old_gray, irises, blinks, blink_in_previous, landmark):
             rcx += x; rcy += y
         rcx /= len(right_eye); rcy /= len(right_eye)
         rcx = int(rcx); rcy = int(rcy)
-    if len(left_eye) > 0:
-        for (x, y) in left_eye:
-            cv2.circle(frame, (x, y), 1, (0, 255, 255), 1)
-            lcx += x; lcy += y
-        lcx /= len(left_eye); lcy /= len(left_eye)
-        lcx = int(lcx); lcy = int(lcy)
+    
+    ## Left eye is not buffered, modify before using!
+    # if len(left_eye) > 0:
+    #     for (x, y) in left_eye:
+    #         cv2.circle(frame, (x, y), 1, (0, 255, 255), 1)
+    #         lcx += x; lcy += y
+    #     lcx /= len(left_eye); lcy /= len(left_eye)
+    #     lcx = int(lcx); lcy = int(lcy)
+
     # cv2.circle(frame, (int(lcx), int(lcy)), 1, (255, 255, 255))
     # cv2.circle(frame, (int(rcx), int(rcy)), 1, (255, 255, 255))
 
@@ -430,9 +446,8 @@ def eyes(gray, old_gray, irises, blinks, blink_in_previous, landmark):
             cv2.circle(right_eye_frame,(rcx-x,rcy-y),1,(255,255,0),1)
             # cv2.circle(frame,(x+cx,y+cy),3,(0,255,0),1)
 
-            enQueue((x+cx-rcx, y+cy-rcy))
-            if pupil_buffered:
-                activate_pupil(np.true_divide(sum_pupil, limit_pupil))
+            runtime_buffer.add((x+cx-rcx, y+cy-rcy))
+            activate_pupil(runtime_buffer.get())
 
         
         # cv2.imshow("right eye binary", cv2.resize(binary_right_eye_frame, (0, 0), fx=10, fy=10))
@@ -509,8 +524,10 @@ if __name__ == "__main__":
     cv2.circle(canvas,center, 3, (0,0,255), 7)
     cv2.imshow("canvas", canvas)
     cv2.waitKey(0)
+    regulation_buffer_size = 10
+    regulate_buffer = buffer(regulation_buffer_size)
     
-    for cc in range(2*limit_pupil):
+    for cc in range(2*regulation_buffer_size):
         ret, frame = webcam.read()
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         rects = detector(gray, 0)
@@ -520,7 +537,7 @@ if __name__ == "__main__":
             landmark = predictor(gray, rect)
             first_regulate(landmark)
 
-    clearQueue()
+    regulate_buffer.clear()
 
     ##Second regulation
     activate_block(canvas, -1)
@@ -529,7 +546,7 @@ if __name__ == "__main__":
     cv2.waitKey(0)
     rects = []
 
-    for cc in range(2*limit_pupil):
+    for cc in range(2*regulation_buffer_size):
         ret, frame = webcam.read()
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         rects = detector(gray, 0)
@@ -539,13 +556,13 @@ if __name__ == "__main__":
             landmark = predictor(gray, rect)
             second_regulate(landmark)
 
-    clearQueue()
-
+    regulate_buffer.clear()
 
     record("\nscalar=", scalar)
     record("\neye_center=", eye_center)
     record("\n")
 
+    runtime_buffer = buffer(runtime_buffer_size)
     while True:
         ret, frame = webcam.read()
         #frame = cv2.imread('./photos/'+photo)
