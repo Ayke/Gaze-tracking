@@ -34,10 +34,6 @@ scalar = (-90,240) #(leftRight, upDown)
 scalar_decelerator = (1, 1)
 # scalar_decelerator = (0.8,0.6)
 
-
-runtime_buffer_size = 10
-regulation_buffer_size = 10
-
 class buffer:
     limit = 5
     number = 0
@@ -51,7 +47,7 @@ class buffer:
         self.limit = limit
         self.number = 0
     def clear(self):
-        self.sum.fill(0)
+        self.sum = (0,0)
         self.index = 0
         self.q = {}
         self.number = 0
@@ -71,9 +67,12 @@ class buffer:
         else:
             return np.true_divide(self.sum, self.number)
 
-
-
-
+runtime_buffer_size = 10
+regulate_buffer_size = 10
+eye_center_buffer_size = 5
+runtime_buffer = buffer(runtime_buffer_size)
+regulate_buffer = buffer(regulate_buffer_size)
+eye_center_buffer = buffer(eye_center_buffer_size)
 
 def paint_point(canvas, point):
     cv2.circle(canvas, point, 7, (0,255,255), 7)
@@ -183,6 +182,7 @@ def record(msg, staff=""):
 def first_regulate(landmark):
     global eye_center
     global regulate_buffer
+    global eye_center_buffer
 
     landmark = face_utils.shape_to_np(landmark)
     (j, k) = face_utils.FACIAL_LANDMARKS_IDXS["left_eye"]
@@ -190,20 +190,21 @@ def first_regulate(landmark):
     (j, k) = face_utils.FACIAL_LANDMARKS_IDXS["right_eye"]
     right_eye = np.float32(landmark[j:k])
 
-    (lcx, lcy) = (0.0, 0.0)
+    # (lcx, lcy) = (0.0, 0.0)
     (rcx, rcy) = (0.0, 0.0)
     if len(right_eye) > 0:
         for (x, y) in right_eye:
             cv2.circle(frame, (x, y), 1, (0, 255, 255), 1)
             rcx += x; rcy += y
         rcx /= len(right_eye); rcy /= len(right_eye)
+        eye_center_buffer.add((rcx,rcy))
         # rcx = int(rcx); rcy = int(rcy)
 
-    if len(left_eye) > 0:
-        for (x, y) in left_eye:
-            cv2.circle(frame, (x, y), 1, (0, 255, 255), 1)
-            lcx += x; lcy += y
-        lcx /= len(left_eye); lcy /= len(left_eye)
+    # if len(left_eye) > 0:
+    #     for (x, y) in left_eye:
+    #         cv2.circle(frame, (x, y), 1, (0, 255, 255), 1)
+    #         lcx += x; lcy += y
+    #     lcx /= len(left_eye); lcy /= len(left_eye)
         # lcx = int(lcx); lcy = int(lcy)
 
     x, y, w, h = cv2.boundingRect(right_eye)
@@ -246,6 +247,7 @@ def first_regulate(landmark):
                 print "Regulate Error!!!!"
             else:
                 (cx,cy) = (int(center['m10']/center['m00']), int(center['m01']/center['m00']))
+            (rcx, rcy) = eye_center_buffer.get()
             print "FR: relative coord: " + str((x+cx-rcx, y+cy-rcy))
             regulate_buffer.add((x+cx-rcx, y+cy-rcy))
             eye_center = regulate_buffer.get()
@@ -274,6 +276,7 @@ def second_regulate(landmark):
             cv2.circle(frame, (x, y), 1, (0, 255, 255), 1)
             rcx += x; rcy += y
         rcx /= len(right_eye); rcy /= len(right_eye)
+        eye_center_buffer.add((rcx,rcy))
         # rcx = int(rcx); rcy = int(rcy)
     if len(left_eye) > 0:
         for (x, y) in left_eye:
@@ -322,12 +325,13 @@ def second_regulate(landmark):
                 print "Regulate Error!!!!"
             else:
                 (cx,cy) = (int(center['m10']/center['m00']), int(center['m01']/center['m00']))
+            (rcx, rcy) = eye_center_buffer.get()
             print "SR: relative coord:" + str(np.subtract((x+cx-rcx, y+cy-rcy),eye_center))
             tmp = np.true_divide(
                 np.subtract((0,0), center_point),
                 np.subtract((x+cx-rcx, y+cy-rcy), eye_center)
             )
-            print "SR: current scalar" + str(tmp)
+            # print "SR: current scalar" + str(tmp)
             regulate_buffer.add(tmp)
             scalar = np.multiply(scalar_decelerator, regulate_buffer.get())
 
@@ -364,7 +368,8 @@ def eyes(gray, old_gray, irises, blinks, blink_in_previous, landmark):
             cv2.circle(frame, (x, y), 1, (0, 255, 255), 1)
             rcx += x; rcy += y
         rcx /= len(right_eye); rcy /= len(right_eye)
-        rcx = int(rcx); rcy = int(rcy)
+        eye_center_buffer.add((rcx,rcy))
+        # rcx = int(rcx); rcy = int(rcy)
     
     ## Left eye is not buffered, modify before using!
     # if len(left_eye) > 0:
@@ -442,11 +447,12 @@ def eyes(gray, old_gray, irises, blinks, blink_in_previous, landmark):
                 (cx,cy) = (0,0)
             else:
                 (cx,cy) = (int(center['m10']/center['m00']), int(center['m01']/center['m00']))
+            (rcx, rcy) = eye_center_buffer.get()
             cv2.circle(right_eye_frame,(cx,cy),3,(0,255,0),1)
-            cv2.circle(right_eye_frame,(rcx-x,rcy-y),1,(255,255,0),1)
+            cv2.circle(right_eye_frame,(int(rcx-x),int(rcy-y)),1,(255,255,0),1)
             # cv2.circle(frame,(x+cx,y+cy),3,(0,255,0),1)
 
-            runtime_buffer.add((x+cx-rcx, y+cy-rcy))
+            runtime_buffer.add((int(x+cx-rcx), int(y+cy-rcy)))
             activate_pupil(runtime_buffer.get())
 
         
@@ -524,10 +530,8 @@ if __name__ == "__main__":
     cv2.circle(canvas,center, 3, (0,0,255), 7)
     cv2.imshow("canvas", canvas)
     cv2.waitKey(0)
-    regulation_buffer_size = 10
-    regulate_buffer = buffer(regulation_buffer_size)
     
-    for cc in range(2*regulation_buffer_size):
+    for cc in range(2*regulate_buffer_size):
         ret, frame = webcam.read()
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         rects = detector(gray, 0)
@@ -538,6 +542,7 @@ if __name__ == "__main__":
             first_regulate(landmark)
 
     regulate_buffer.clear()
+    eye_center_buffer.clear()
 
     ##Second regulation
     activate_block(canvas, -1)
@@ -546,7 +551,9 @@ if __name__ == "__main__":
     cv2.waitKey(0)
     rects = []
 
-    for cc in range(2*regulation_buffer_size):
+    eye_center_buffer.clear()
+
+    for cc in range(2*regulate_buffer_size):
         ret, frame = webcam.read()
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         rects = detector(gray, 0)
